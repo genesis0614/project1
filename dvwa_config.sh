@@ -12,7 +12,7 @@ cp /var/www/html/config/config.inc.php.dist /var/www/html/config/config.inc.php
 sed -i "s/p@ssw0rd/1234/g" /var/www/html/config/config.inc.php
 sed -i "s/DVWA\[ 'disable_authentication' \] = false/DVWA\[ 'disable_authentication' \] = true/g" /var/www/html/config/config.inc.php
 sed -i "s/DVWA\[ 'default_security_level' \] = 'impossible'/DVWA\[ 'default_security_level' \] = 'low'/g" /var/www/html/config/config.inc.php
-sed -i "s/allow_url_include = Off/allow_url_include = On/g" /etc/php.ini 
+sed -i "s/allow_url_include = Off/allow_url_include = On/g" /etc/php.ini
 chmod 777 /var/www/html/config
 chmod 777 /var/www/html/hackable/uploads
 chmod 666 /var/www/html/external/recaptcha/recaptchalib.php
