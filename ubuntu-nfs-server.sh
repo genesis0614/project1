@@ -7,4 +7,4 @@ systemctl enable nfs-server
 apt install -y amazon-ec2-utils
 mkdir /nfs-shared
 ec2-metadata -o | cut -d ' ' -f 2 > /nfs-shared/list.txt
-# chmod -R 777 /nfs-shared/
+chmod -R 777 /nfs-shared/
