@@ -1,0 +1,49 @@
+#!/bin/bash
+apt update -y
+apt install -y expect
+cat << EOF > /tmp/openvpn_expect.exp
+#!/usr/bin/expect
+set timeout 30
+spawn ovpn-init --ec2
+expect "Please enter 'DELETE' to delete existing configuration:"
+send "DELETE\r"
+expect "Please enter 'yes' to indicate your agreement \[no\]"
+send "yes\r"
+expect "Press ENTER for default \[yes\]"
+send "yes\r"
+expect "Press Enter for default"
+send "1\r"
+expect "Press ENTER for default"
+send "\r"
+expect "Press ENTER for default"
+send "\r"        
+expect "Press ENTER for default"
+send "943\r"
+expect "Press ENTER for default"
+send "443\r"
+expect "Press ENTER for default"
+send "no\r"
+expect "Press ENTER for default"
+send "no\r"
+expect "Press ENTER for EC2 default"
+send "yes\r"
+expect "Press ENTER for default"
+send "yes\r"
+expect "account"
+send "P@ssw0rd\r"
+expect "account"
+send "P@ssw0rd\r"
+expect "Activation"
+send "\r"
+expect eof  ;
+EOF
+chmod +x /tmp/openvpn_expect.exp    
+/tmp/openvpn_expect.exp > /tmp/expect_output.log 2>&1
+systemctl start openvpnas.service
+systemctl enable openvpnas.service
+wget https://raw.githubusercontent.com/genesis0614/project1/refs/heads/main/bash-shell/ubuntu-nfs-server.sh
+chmod +x ubuntu-nfs-server.sh
+sh ubuntu-nfs-server.sh
+rm -f ubuntu-nfs-server.sh
+wget -P /nfs-shared/ https://raw.githubusercontent.com/genesis0614/project1/refs/heads/main/bash-shell/ping.sh
+chmod +x /nfs-shared/ping.sh
