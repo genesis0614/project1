@@ -1,7 +1,3 @@
-#!/bin/bash
-apt update -y
-apt install -y expect
-cat << EOF > /tmp/openvpn_expect.exp
 #!/usr/bin/expect
 set timeout 30
 spawn ovpn-init --ec2
@@ -35,9 +31,4 @@ expect "account"
 send "P@ssw0rd\r"
 expect "Activation"
 send "\r"
-expect eof  ;
-EOF
-chmod +x /tmp/openvpn_expect.exp    
-/tmp/openvpn_expect.exp > /tmp/expect_output.log 2>&1
-systemctl start openvpnas.service
-systemctl enable openvpnas.service
+expect eof
