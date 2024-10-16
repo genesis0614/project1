@@ -1,0 +1,317 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS 1st Project - NextHop
+###############################################################
+###### 변수, 파라메터, 매핑, 컨디션
+###############################################################
+#파라메터
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Project Name
+    Default: NextHop
+  RegionName:
+    Type: String
+    Description: Region Name
+  MyPubIp:
+    Type: String
+    Description: My Public IP Address
+    Default: 0.0.0.0/0
+
+#매핑
+Mappings:
+  CidrMap:
+    ap-northeast-2:
+      VpcCidr: 10.0.0.0/16
+      PubSn1Cidr: 10.0.1.0/24
+      PubSn2Cidr: 10.0.2.0/24
+      WebSn3Cidr: 10.0.3.0/24
+      WebSn4Cidr: 10.0.4.0/24
+      RdsSn5Cidr: 10.0.5.0/24 
+      RdsSn6Cidr: 10.0.6.0/24    
+    sa-east-1:
+      VpcCidr: 10.3.0.0/16
+      PubSn1Cidr: 10.3.1.0/24
+      PubSn2Cidr: 10.3.2.0/24
+      WebSn3Cidr: 10.3.3.0/24
+      WebSn4Cidr: 10.3.4.0/24
+      RdsSn5Cidr: 10.3.5.0/24 
+      RdsSn6Cidr: 10.3.6.0/24 
+
+#컨디션
+Conditions:
+  CreateOpenVpn: !Equals [!Ref "AWS::Region", ap-northeast-2]
+  CreateSeoulKey: !Equals [!Ref "AWS::Region", ap-northeast-2]   
+  CreateSaoPauloKey: !Equals [!Ref "AWS::Region", sa-east-1]
+
+#리소스 시작
+Resources:
+
+
+###############################################################
+###### VPC
+###############################################################
+# VPC
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !FindInMap [CidrMap, !Ref "AWS::Region", VpcCidr]
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${RegionName}-vpc"
+# IGW
+  Igw:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${RegionName}-igw"
+# VPC + IGW 연결
+  IgwAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref Igw
+      VpcId: !Ref Vpc    
+
+
+###############################################################
+###### 서브넷, 라우팅 테이블
+###############################################################
+#### Public 티어 설정
+#Public 서브넷1,2
+  PubSn1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !FindInMap [CidrMap, !Ref "AWS::Region", PubSn1Cidr]
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${RegionName}-pub-sn1"
+  PubSn2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [2, !GetAZs '']
+      CidrBlock: !FindInMap [CidrMap, !Ref "AWS::Region", PubSn2Cidr]
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${RegionName}-pub-sn2"
+
+#라우트 테이블12
+  PubRt12:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${RegionName}-pub-rt12"
+
+#라우트 테이블 + 서브넷1,2 연결
+  PubRt12Sn1Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PubRt12
+      SubnetId: !Ref PubSn1
+  PubRt12Sn2Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PubRt12
+      SubnetId: !Ref PubSn2
+
+#라우트 테이블 + IGW 연결
+  PubRt12DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IgwAttachment
+    Properties:
+      RouteTableId: !Ref PubRt12
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref Igw
+
+#### WEB 티어 설정
+#WEB 서브넷3,4
+  WebSn3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !FindInMap [CidrMap, !Ref "AWS::Region", WebSn3Cidr]
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${RegionName}-web-sn3"
+  WebSn4:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [2, !GetAZs '']
+      CidrBlock: !FindInMap [CidrMap, !Ref "AWS::Region", WebSn4Cidr]
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${RegionName}-web-sn4"          
+
+#라우트 테이블34
+  WebRt34:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${RegionName}-web-rt34"
+
+#라우트 테이블34 + 서브넷3,4 연결
+  WebRt34Sn3Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref WebRt34
+      SubnetId: !Ref WebSn3
+  WebRt34Sn4Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref WebRt34
+      SubnetId: !Ref WebSn4
+
+##### RDS 티어 설정
+#RDS 서브넷5,6
+  RdsSn5:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !FindInMap [CidrMap, !Ref "AWS::Region", RdsSn5Cidr]
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${RegionName}-rds-sn5"
+  RdsSn6:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [2, !GetAZs '']
+      CidrBlock: !FindInMap [CidrMap, !Ref "AWS::Region", RdsSn6Cidr]
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${RegionName}-rds-sn6"
+
+
+###############################################################
+###### 키페어
+###############################################################
+# 서울 키
+  KeyPairSeoul:
+    Type: AWS::EC2::KeyPair
+    Condition: CreateSeoulKey
+    Properties:
+      KeyName: seoul-key
+      PublicKeyMaterial: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCvar75BjLHVxgqjujQM0G63WMbQxzo9gcKi09etWY9VFCcVDFbsigeL9MTInRWz7/5q78OuvMIhehUXr/jlsRStlifzRrKpjpLLD132D+uW/oXoY8cBVd97TM2gCTOkDQtxvrFQOlxb5sLj0vy5UgoUs0Kkx5JzbulwliVb+066YShMmESNf9Kh9ZEjDGjZUwa9xdrMJfNdd51r6YH30Zx2F/JCw9yJ7ciXOXkgi3OB9L2LK2feue21M0QxdEg/awshBqaU6Kb7V6hXwQ+ZuOuE6Q+5lg1v8HX4qZN+i+s5y9pfGLw0KEpsZK6bFzodZkEWe/aYFySP3ZIf5A1X1w/ rsa-key-20240926
+
+# 상파울로 키
+  KeyPairSaoPaulo:
+    Type: AWS::EC2::KeyPair
+    Condition: CreateSaoPauloKey
+    Properties:
+      KeyName: saopaulo-key
+      PublicKeyMaterial: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDRtG2YVzCSAWnL9L3Y61LXr+rW7GyZImcNZf/kpmZFKKFcWNWui14T7JxLhT3+31zHzQSV2Qvbvpfub7/BcJDQub/oKJaHpNdNT8jyF0r70wYPeP1aUNkn0d+WpFGU/ZCbwYCa9g3BF9v3G0Bj4S4XF844L90tRaGzTwyKeXWRKMghJzFGx8SkVdCWOm4Iogmvl9w2ZoW/Pl1eTm/Vldeh2LpqfEUgt0UIg0jDKA+Tg8ZxMweIsgYkdHitcuoAc8NKB87txrrBrmt5pxNJ+A64o8dr6Gqudj/ypLV6W4FKRr622qxd+4tdLqeNmDqxUSc9iDC8fbgZbQgBEUbH0i/D rsa-key-20240926
+
+
+###############################################################
+### NAT Gateway ###
+###############################################################
+#Elastic IP
+  NatGatewayEip:
+    Type: AWS::EC2::EIP
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${RegionName}-nat-eip"
+
+#Nat Gateway
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    DependsOn: NatGatewayEip
+    Properties:
+      AllocationId: !GetAtt NatGatewayEip.AllocationId
+      SubnetId: !Ref PubSn1
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${RegionName}-nat-gw"
+
+#라우트 테이블34 + NAT게이트웨이 연결
+  WebRt34DefaultRoute2:
+    Type: AWS::EC2::Route
+    DependsOn: NatGateway
+    Properties:
+      RouteTableId: !Ref WebRt34
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+      
+###############################################################
+###### OutPuts
+###############################################################
+Outputs:
+#VPC ID
+  VpcId:
+    Description: The VPC ID
+    Value: !Ref Vpc
+    Export:
+      Name: VpcId
+
+#서브넷 ID
+  PubSn1Id:
+    Description: The Public Subnet1 ID
+    Value: !Ref PubSn1
+    Export:
+      Name: PubSn1Id
+  PubSn2Id:
+    Description: The Public Subnet2 ID
+    Value: !Ref PubSn2
+    Export:
+      Name: PubSn2Id
+  WebSn3Id:
+    Description: The Private Subnet3 ID
+    Value: !Ref WebSn3
+    Export:
+      Name: WebSn3Id
+  WebSn4Id:
+    Description: The Private Subnet4 ID
+    Value: !Ref WebSn4
+    Export:
+      Name: WebSn4Id
+  RdsSn5Id:
+    Description: The Private Subnet5 ID
+    Value: !Ref RdsSn5
+    Export:
+      Name: RdsSn5Id
+  RdsSn6Id:
+    Description: The Private Subnet6 ID
+    Value: !Ref RdsSn6
+    Export:
+      Name: RdsSn6Id
+
+#라우트 테이블 ID
+  PubRt12Id:
+    Description: The Route Table12 ID
+    Value: !Ref PubRt12
+    Export:
+      Name: PubRt12Id
+  WebRt34Id:
+    Description: The Route Table34 ID
+    Value: !Ref WebRt34
+    Export:
+      Name: WebRt34Id
+
+#키페어
+  KeyPairSeoul:
+    Condition: CreateSeoulKey
+    Description: The Key Pair Name
+    Value: !Ref KeyPairSeoul
+    Export:
+      Name: KeyPairSeoul
+  KeyPairSaoPaulo:
+    Condition: CreateSaoPauloKey
+    Description: The Key Pair Name
+    Value: !Ref KeyPairSaoPaulo
+    Export:
+      Name: KeyPairSaoPaulo      
+...      
