@@ -1,0 +1,135 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS 1st Project - Nexthop
+###############################################################
+###### 변수, 파라메터, 매핑, 컨디션
+###############################################################
+#파라메터
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Project Name
+  RegionName:
+    Type: String
+    Description: Region Name
+  MyPubIp:
+    Type: String
+    Description: My Public IP Address
+    Default: 0.0.0.0/0
+  SaPauloReVpcId:
+    Type: String
+    Description: SapauloReVpcId
+
+  PeerTransitGateway:
+    Type: String
+    Description: Transit Gateway ID in Peer Region (e.g., sa-east-1)
+  TransitGatewayRouteTable:
+    Type: String
+    Description: Transit Gateway Route Table ID for peering route propagation
+
+# #매핑
+# Mappings:
+
+# #컨디션
+# Conditions:
+
+#리소스 시작
+Resources:
+
+
+###############################################################
+# TGW 멀티리전 연결
+# https://docs.aws.amazon.com/ko_kr/AWSCloudFormation/latest/UserGuide/aws-resource-ec2-transitgateway.html
+# https://docs.aws.amazon.com/ko_kr/AWSCloudFormation/latest/UserGuide/AWS_EC2.html     <<여기서 transit 이라고 검색하면 종류별로 뜸
+# https://github.com/aws-samples/aws-transit-gateway-and-scalable-security-solutions/blob/main/transit-gateway.yaml - 새로 찾음! 깃허브. 전파, 첨부파일, 기본 다 체크해둘것
+###############################################################
+  # Transit Gateway
+  TransitGateway:
+    Type: "AWS::EC2::TransitGateway"
+    Properties: 
+      AmazonSideAsn: 65000
+      Description: "Transit Gateway for multi-region connection"
+      DefaultRouteTableAssociation: "enable" # 기본적으로 모든 연결이 라우팅 테이블에 연결됨.
+      DefaultRouteTablePropagation: "enable"
+      AutoAcceptSharedAttachments: "enable" # VPC 연결 자동 승인 설정. 필요시 disable로 변경 가능.
+      DnsSupport: "enable" # Transit Gateway에서 DNS를 지원하는 설정.
+      VpnEcmpSupport: "enable" # VPN을 통해 ECMP(동등 코스트 다중 경로) 라우팅을 지원.
+
+  # Transit Gateway Attachment in Region 1 (Seoul / ap-northeast-2)
+  TransitGatewayAttachmentRegion1:
+    Type: "AWS::EC2::TransitGatewayVpcAttachment"
+    Properties:
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Ref VpcId  # 사용자 입력: 서울 리전의 VPC ID
+      Tags:
+        - Key: Name
+          Value: "TGW-Att-Seoul"
+
+  # Transit Gateway Attachment in Region 2 (Sao Paulo / sa-east-1)
+  TransitGatewayAttachmentRegion2:
+    Type: "AWS::EC2::TransitGatewayVpcAttachment"
+    Properties:
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Sub ${SaPauloReVpcId}  # 사용자 입력: 상파울로 리전의 VPC ID
+      Tags:
+        - Key: Name
+          Value: "TGW-Att-SaoPaulo"
+
+  # Transit Gateway Peering Attachment to connect the two regions
+  TransitGatewayPeering:
+    Type: "AWS::EC2::TransitGatewayPeeringAttachment"
+    Properties:
+      TransitGatewayId: !Ref TransitGateway
+      PeerTransitGatewayId: !Ref PeerTransitGateway  # 사용자 입력: 피어 리전의 Transit Gateway ID
+      PeerRegion: "sa-east-1" # 상파울로 리전
+      Tags:
+        - Key: Name
+          Value: "TGW-Peer-between-Seoul-SaoPaulo"
+
+  # Peering route propagation in Region 1 (지역1의 피어링 경로 전파)
+  TransitGatewayRoutePropagationRegion1:
+    Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref TransitGatewayAttachmentRegion1
+      TransitGatewayRouteTableId: !Ref TransitGatewayRouteTable  # 사용자 입력: Transit Gateway Route Table ID
+
+  # Peering route propagation in Region 2 (지역2의 피어링 경로 전파)
+  TransitGatewayRoutePropagationRegion2:
+    Type: "AWS::EC2::TransitGatewayRouteTablePropagation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref TransitGatewayAttachmentRegion2
+      TransitGatewayRouteTableId: !Ref TransitGatewayRouteTable  # 사용자 입력: Transit Gateway Route Table ID
+
+# Additional configuration options (주석으로 추가적인 설정값 설명)
+# - AmazonSideAsn: AWS Transit Gateway의 ASN (자동 시스템 번호) 설정. 기본은 64512이지만, 필요에 따라 특정 값을 할당 가능.
+# - DefaultRouteTableAssociation: 기본 라우팅 테이블에 모든 연결을 자동으로 연결할지 여부.
+# - DefaultRouteTablePropagation: 라우팅 테이블이 모든 연결을 전파할지 여부.
+# - DnsSupport: TGW에서 DNS를 활성화하여 VPC 간 통신 시 DNS를 사용할 수 있게 함.
+# - AutoAcceptSharedAttachments: 자동으로 공유된 VPC 연결을 수락할지 여부.
+
+
+###############################################################
+# OutPuts
+###############################################################
+Outputs:
+  TransitGatewayId:
+    Description: Transit Gateway ID
+    Value: !Ref TransitGateway
+    Export:
+      Name: TransitGatewayId   
+  TransitGatewayAttachmentRegion1Id:
+    Description: Transit Gateway Attachment ID for Region 1
+    Value: !Ref TransitGatewayAttachmentRegion1
+    Export:
+      Name: TransitGatewayAttachmentRegion1Id       
+  TransitGatewayAttachmentRegion2Id:
+    Description: Transit Gateway Attachment ID for Region 2
+    Value: !Ref TransitGatewayAttachmentRegion2
+    Export:
+      Name: TransitGatewayAttachmentRegion2Id
+  TransitGatewayPeeringId:
+    Description: Transit Gateway Peering Attachment ID
+    Value: !Ref TransitGatewayPeering
+    Export:
+      Name: TransitGatewayPeeringId
+...                

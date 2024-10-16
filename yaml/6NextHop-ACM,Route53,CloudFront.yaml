@@ -1,0 +1,158 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS 1st Project - Nexthop
+###############################################################
+###### 변수, 파라메터, 매핑, 컨디션
+###############################################################
+#파라메터
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Project Name
+    Default: NextHop
+  RegionId:
+    Type: String
+    Description: Region Name
+    Default: us-east-1
+  RegionName:
+    Type: String
+    Description: Region Name
+    Default: Seoul              #차후 삭제할 것
+  DomainName:
+    Type: String
+    Description: Domain Name
+    Default: (put here wildcard mask).saintlee.life
+  RecordName:
+    Type: String
+    Description: Record Name
+    Default: nexthop.saintlee.life.
+  OriginDomainName:
+    Type: String
+    Description: Record Name
+    Default: test-nexthop-team-123.s3.ap-northeast-2.amazonaws.com
+
+  HostedZoneName:
+    Type: String
+    Description: Hosted Zone Name
+    Default: saintlee.life.
+
+# #매핑
+# Mappings:
+
+#컨디션
+Conditions:
+  CreateACM: !Equals [!Ref "AWS::Region", us-east-1]
+
+
+#리소스 시작
+Resources:
+
+###############################################################
+###### ACM 인증받기 # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-certificatemanager-certificate.html
+###############################################################
+  CreateACM:
+    Condition: CreateACM
+    Type: "AWS::CertificateManager::Certificate"
+    Properties:
+      DomainName: !Ref DomainName
+      ValidationMethod: "DNS"      
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+      KeyAlgorithm: RSA_2048
+
+
+###############################################################
+###### Route53 레코드 생성 # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-route53-recordset.html
+###############################################################
+  CreateRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneName: !Ref HostedZoneName
+      Name: !Ref RecordName
+      Type: A
+      AliasTarget:                                     # AliasTarget으로 CloudFront 배포를 연결
+        DNSName: !GetAtt CreateCloudFront.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2                   # CloudFront의 고유 HostedZoneId (변경 필요 없음)
+
+###############################################################
+###### CloudFront
+# 1. 깃허브 템플릿 : https://github.com/aws-samples/accelerate-protect-website-using-cloudfront-and-aws-waf/blob/main/cloudformation-template.yaml
+# 2. 분배 설정값 : https://docs.aws.amazon.com/ko_kr/AWSCloudFormation/latest/UserGuide/aws-properties-cloudfront-distribution-distributionconfig.html
+# 3. 분배 예시 : https://docs.aws.amazon.com/ko_kr/AWSCloudFormation/latest/UserGuide/quickref-cloudfront.html
+###############################################################
+#캐쉬 정책
+  CreateCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties: 
+      CachePolicyConfig: 
+        Comment: 'Cache policy for static content with gzip/br compression'
+        DefaultTTL: 259200   #3일
+        MaxTTL: 31536000     #1년
+        MinTTL: 0            #즉시
+        Name: !Sub "${ProjectName}-${RegionName}-cf-cache-policy"
+        ParametersInCacheKeyAndForwardedToOrigin: 
+          CookiesConfig: 
+            CookieBehavior: none
+          EnableAcceptEncodingBrotli: True
+          EnableAcceptEncodingGzip: True
+          HeadersConfig: 
+            HeaderBehavior: none
+          QueryStringsConfig: 
+            QueryStringBehavior: none
+
+#CloudFront 생성
+  CreateCloudFront:
+    DependsOn: CreateCachePolicy
+    Type: 'AWS::CloudFront::Distribution'
+    Properties:
+      DistributionConfig:
+        Origins:
+        - DomainName: !Ref OriginDomainName
+          Id: CustomOriginId               #오리진 식별 아이디
+          CustomOriginConfig:
+            HTTPPort: '80'
+            HTTPSPort: '443'
+            OriginProtocolPolicy: http-only  #오리진과의 통신 방식. HTTP만 사용
+        Enabled: 'true'
+        DefaultRootObject: index.html                #기본 로드할 파일.
+
+        DefaultCacheBehavior:
+          TargetOriginId: CustomOriginId      #오리진 식별 아이디
+          ForwardedValues:
+            QueryString: 'false'
+            Cookies:
+              Forward: none
+          ViewerProtocolPolicy: allow-all  #모든 프로토콜(HTTP/HTTPS)을 허용.
+
+        #사용자 지정 에러 페이지 설정
+        CustomErrorResponses:
+        - ErrorCode: '404'                           # 404 에러에 대한 설정.
+          ResponsePagePath: "/error-pages/404.html"  # 에러 발생 시 보여줄 페이지
+          ResponseCode: '200'                        # 에러 시 반환할 HTTP 상태 코드.
+          ErrorCachingMinTTL: '30'                   # 에러를 캐시할 최소 TTL(초).
+        
+        #CloudFront 엣지 로케이션의 가격 범위.
+        PriceClass: PriceClass_200  
+
+        #CloudFront 배포에서 사용할 인증서.
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: 'true'
+
+
+
+
+###############################################################
+###### 로드밸런서에 Https 적용
+###############################################################
+#리스너 추가
+
+
+
+###############################################################
+###### OutPuts
+###############################################################
+# Outputs:
+#   ACMArn:
+#     Description: "The ARN of the created ACM Certificate"
+#     Value: !Ref SSLCertificate
+...                

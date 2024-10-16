@@ -1,0 +1,193 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS 1st Project - Nexthop
+###############################################################
+###### 변수, 파라메터, 매핑, 컨디션
+###############################################################
+#파라메터
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Project Name
+    Default: NextHop
+  RegionName:
+    Type: String
+    Description: Region Name
+  MyPubIp:
+    Type: String
+    Description: My Public IP Address
+    Default: 0.0.0.0/0
+  BastionAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Description: AMI ID For EC2 (Standard)
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+#매핑
+Mappings:
+  RegionMap:
+    sa-east-1:
+      BastionIp: 10.3.2.100
+    ap-northeast-2:
+      OpenVpnAmi: ami-09a093fa2e3bfca5a
+      OpenVpnIp: 10.0.2.100
+
+#컨디션
+Conditions:
+  CreateBastion: !Equals [!Ref "AWS::Region", sa-east-1]
+  CreateOpenVpn: !Equals [!Ref "AWS::Region", ap-northeast-2]
+
+#리소스 시작
+Resources:
+
+
+###############################################################
+###### OpenVPN
+###############################################################
+#OpenVPN - 보안그룹
+  OpenVpnSg:
+    Type: AWS::EC2::SecurityGroup
+    Condition: CreateOpenVpn
+    Properties:
+      GroupDescription: !Sub "${AWS::Region} OpenVPN Security Group"
+      VpcId: !ImportValue VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref MyPubIp
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref MyPubIp
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref MyPubIp
+        - IpProtocol: tcp
+          FromPort: 943
+          ToPort: 943
+          CidrIp: "0.0.0.0/0"    #통신문제로 0.0.0.0/0 설정함. 본래 MyPubIp가 되어야함
+        - IpProtocol: tcp
+          FromPort: 945
+          ToPort: 945
+          CidrIp: !Ref MyPubIp
+        - IpProtocol: udp
+          FromPort: 1194
+          ToPort: 1194
+          CidrIp: !Ref MyPubIp
+      Tags:
+        - Key : Name
+          Value : !Sub "${ProjectName}-${RegionName}-openvpn-sg"
+
+#OpenVPN - 인터페이스
+  OpenVpnInterface:
+    Type: AWS::EC2::NetworkInterface
+    Condition: CreateOpenVpn
+    Properties:
+      Description: OpenVpn Instance Interface Eth0
+      SubnetId: !ImportValue PubSn2Id
+      SourceDestCheck: true
+      GroupSet:
+        - !Ref OpenVpnSg
+      PrivateIpAddress: !FindInMap [RegionMap, !Ref "AWS::Region", OpenVpnIp]
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${RegionName}-openvpn-interface"
+
+#OpenVPN - EIP
+  OpenVpnEip:
+    Type: AWS::EC2::EIP
+    Condition: CreateOpenVpn
+    Properties:
+      InstanceId: !Ref OpenVpn
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${RegionName}-openvpn-eip"
+
+#OpenVPN - EC2 
+  OpenVpn:
+    Type: AWS::EC2::Instance
+    Condition: CreateOpenVpn
+    Properties:
+      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", OpenVpnAmi]
+      InstanceType: t2.small
+      KeyName: !ImportValue KeyPairSeoul
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          NetworkInterfaceId: !Ref OpenVpnInterface
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${RegionName}-openvpn"
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          apt update -y
+          apt install -y expect
+          wget https://raw.githubusercontent.com/genesis0614/project1/refs/heads/main/bash-shell/openvpn_expect.exp -P /tmp
+          chmod +x /tmp/openvpn_expect.exp    
+          /tmp/openvpn_expect.exp > /tmp/expect_output.log 2>&1
+          systemctl start openvpnas.service
+          systemctl enable openvpnas.service
+          rm -f openvpn_expect.exp 
+
+
+###############################################################
+###### Bastion Host
+###############################################################
+#Bastion Host - 보안그룹
+  BastionSg:
+    Type: AWS::EC2::SecurityGroup
+    Condition: CreateBastion
+    Properties:
+      GroupDescription: !Sub "${AWS::Region} Bastion Host Security Group"
+      VpcId: !ImportValue VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref MyPubIp
+      Tags:
+        - Key : Name
+          Value : !Sub "${ProjectName}-${RegionName}-bastion-sg"
+
+#Bastion Host - EC2
+  Bastion:
+    Type: 'AWS::EC2::Instance'
+    Condition: CreateBastion
+    Properties: 
+        ImageId: !Ref BastionAmiId
+        InstanceType: t2.micro
+        KeyName: !ImportValue KeyPairSaoPaulo
+        NetworkInterfaces: 
+          - AssociatePublicIpAddress: true
+            DeviceIndex: 0
+            GroupSet: 
+              - Ref: BastionSg
+            SubnetId: !ImportValue PubSn2Id
+        Tags:
+          - Key: Name
+            Value: !Sub "${ProjectName}-${RegionName}-BastionHost"
+
+
+###############################################################
+###### OutPuts
+###############################################################
+Outputs:
+  OpenVpnPubIp:
+    Condition: CreateOpenVpn
+    Description: The OpenVPN Public IP Address
+    Value: !GetAtt OpenVpn.PublicIp
+    Export:
+      Name: OpenVpnPubIp    
+  OpenVpnPriIp:
+    Condition: CreateOpenVpn
+    Description: The OpenVPN Private IP Address
+    Value: !GetAtt OpenVpn.PrivateIp
+    Export:
+      Name: OpenVpnPriIp   
+  BastionPubIp:
+    Condition: CreateBastion
+    Description: The Bastion Host Public IP Address
+    Value: !GetAtt Bastion.PublicIp
+    Export:
+      Name: BastionPubIp

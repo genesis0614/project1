@@ -1,0 +1,136 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS 1st Project - Nexthop
+###############################################################
+###### 변수, 파라메터, 매핑, 컨디션
+###############################################################
+#파라메터
+Parameters:
+  #기본값
+  ProjectName:
+    Type: String
+    Description: Project Name
+    Default: NextHop
+  RegionName:
+    Type: String
+    Description: Region Name
+
+  #DB 고유식별자
+  DBInstanceIdentifier:
+    Description: The database instance identifier (Make Unique Name)
+    Type: String
+    Default: nexthop-rds-db-1
+
+  #DB 성능
+  DBInstanceClass:
+    Description: The RDS instance class (db.t3.micro / db.m5d.large)
+    Type: String
+    Default: db.t3.micro
+
+  #DB 스토리지  
+  AllocatedStorage:
+    Description: The size of the database (Gb)
+    Type: Number
+    Default: 20
+    MinValue: 20
+    MaxValue: 6144
+    ConstraintDescription: Must be between 20 and 6144 GB.
+  
+  #ID와 PW 생성
+  DBUsername:
+    Description: The database admin account username
+    Type: String
+    Default: admin
+  DBPassword:
+    Description: The database admin account password
+    Type: String
+    NoEcho: true  # 비밀번호 안보이게 ****처리
+    MinLength: 8
+    MaxLength: 41
+    AllowedPattern: "[a-zA-Z0-9]*"
+    ConstraintDescription: Must be between 8 and 41 alphanumeric characters.
+
+# #컨디션
+# Conditions:
+
+#리소스 시작
+Resources:
+
+
+###############################################################
+###### RDS 보안그룹 # https://docs.aws.amazon.com/ko_kr/AWSCloudFormation/latest/UserGuide/quickref-rds.html 
+###############################################################
+  RdsSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !ImportValue VpcId
+      GroupDescription: !Sub "${AWS::Region} RDS Security Group"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0                                             #이 부분은 web서버를 통과한 sg도 가능한지 체크할것.
+      Tags:
+        - Key : Name
+          Value : !Sub "${ProjectName}-${RegionName}-rds-sg"
+
+
+###############################################################
+###### 서브넷 그룹
+###############################################################
+  RdsSubnetGroup: 
+    Type: AWS::RDS::DBSubnetGroup
+    Properties: 
+      DBSubnetGroupDescription: Description of subnet group
+      DBSubnetGroupName: !Sub "${ProjectName}-${RegionName}-rds-subnetgroup"
+      SubnetIds: 
+        - !ImportValue RdsSn5Id
+        - !ImportValue RdsSn6Id
+      Tags: 
+        - Key: Name
+          Value: !Sub "${ProjectName}-${RegionName}-rds-subnetgroup"
+
+
+###############################################################
+###### RDS # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-rds-dbinstance.html  Syntax 참조가능
+###############################################################
+  RdsDB:
+    Type: AWS::RDS::DBInstance
+    DependsOn: RdsSubnetGroup
+    Properties: 
+      DBInstanceIdentifier: !Ref DBInstanceIdentifier
+      DBName: !Sub "${ProjectName}${RegionName}Rds"
+      DBInstanceClass: !Ref DBInstanceClass
+      StorageType: gp3
+      AllocatedStorage: !Ref AllocatedStorage
+      Engine: mysql
+      EngineVersion: "8.0.39"
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      VPCSecurityGroups:
+        - !Ref RdsSg
+      BackupRetentionPeriod: 7
+      MultiAZ: false
+      DBSubnetGroupName: !Ref RdsSubnetGroup
+      PubliclyAccessible: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${RegionName}-rds-db"
+
+
+###############################################################
+###### OutPuts
+###############################################################
+Outputs:
+  RdsEndpoint:
+    Description: The connection endpoint for the RDS instance
+    Value: !GetAtt RdsDB.Endpoint.Address
+    Export:
+      Name: RdsEndpoint
+
+  DBInstancePort:
+    Description: The port for the RDS instance
+    Value: !GetAtt RdsDB.Endpoint.Port
+    Export:
+      Name: RDSInstancePor
+...                

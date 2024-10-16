@@ -1,0 +1,127 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS 1st Project - Nexthop
+###############################################################
+###### 변수, 파라메터, 매핑, 컨디션
+###############################################################
+#파라메터
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Project Name
+    Default: NextHop
+  RegionName:
+    Type: String
+    Description: Region Name
+  AmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Description: AMI ID For EC2 (Standard)
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+#매핑
+Mappings:
+  CidrMap:
+    ap-northeast-2:
+      ManageVpcCidr: 10.0.2.0/16
+    sa-east-1:
+      ManageVpcCidr: 10.3.2.0/16
+
+#리소스 시작
+Resources:
+
+###############################################################
+###### 시작템플릿 For Web
+###############################################################
+#Web서버 보안그룹
+  WebSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !ImportValue VpcId
+      GroupDescription: !Sub "${AWS::Region} Web Instance Security Group"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !FindInMap [CidrMap, !Ref "AWS::Region", ManageVpcCidr]
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key : Name
+          Value : !Sub "${ProjectName}-${RegionName}-web-sg"
+
+#시작 템플릿
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub "${ProjectName}-${RegionName}-lt"
+      VersionDescription: version 1.0
+      LaunchTemplateData:
+        ImageId: !Ref AmiId
+        InstanceType: t2.micro
+        SecurityGroupIds:
+          - !Ref WebSg
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub "${ProjectName}-${RegionName}-web-server" 
+        UserData:
+          Fn::Base64: |
+            #!/bin/bash
+            echo "p@ssw0rd" | passwd --stdin root
+            sed -i "s/^#PermitRootLogin yes/PermitRootLogin yes/g" /etc/ssh/sshd_config
+            sed -i "s/^PasswordAuthentication no/PasswordAuthentication yes/g" /etc/ssh/sshd_config
+            systemctl restart sshd
+            yum install -y httpd
+            systemctl start httpd
+            systemctl enable httpd
+            cat <<EOF > /var/www/html/index.html
+              <h1> Welcome to Web server </h1>
+            EOF
+
+
+###############################################################
+###### 오토 스케일링
+###############################################################
+# 오토스케일링 - 그룹
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn: LaunchTemplate
+    Properties:
+      AutoScalingGroupName: !Sub "${ProjectName}-${RegionName}-asg"
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      VPCZoneIdentifier:
+        - !ImportValue WebSn3Id
+        - !ImportValue WebSn4Id
+      TargetGroupARNs:
+        - !ImportValue WebAlbTgArn
+      DesiredCapacity: 2
+      MinSize: 2
+      MaxSize: 4
+
+# 오토스케일링 - 정책
+  ScalingPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    DependsOn: AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 50
+
+
+###############################################################
+# OutPuts
+###############################################################
+
+...      
