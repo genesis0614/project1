@@ -1,0 +1,19 @@
+#!/bin/bash
+echo "p@ssw0rd" | passwd --stdin root
+sed -i "s/^#PermitRootLogin yes/PermitRootLogin yes/g" /etc/ssh/sshd_config
+sed -i "s/^PasswordAuthentication no/PasswordAuthentication yes/g" /etc/ssh/sshd_config
+systemctl restart sshd
+yum install -y httpd
+systemctl start httpd
+systemctl enable httpd
+amazon-linux-extras install -y epel
+yum install -y stress
+availability_zone=$(ec2-metadata -z)
+instance_id=$(ec2-metadata -i)
+private_ip=$(ec2-metadata -o)
+cat <<EOF > /var/www/html/index.html
+  <h1> Welcome to Web server </h1>
+  <h3> ${availability_zone} </h3>
+  <h3> ${instance_id} </h3>
+  <h3> ${private_ip} </h3>
+EOF
