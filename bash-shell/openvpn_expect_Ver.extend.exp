@@ -35,7 +35,7 @@ expect "account"
 send "P@ssw0rd\r"
 expect "Activation"
 send "\r"
-expect eof  ;
+expect eof
 EOF
 chmod +x /tmp/openvpn_expect.exp    
 /tmp/openvpn_expect.exp > /tmp/expect_output.log 2>&1
